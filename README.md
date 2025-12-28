@@ -1,23 +1,48 @@
-<h1>djongo</h1>
+# djongo-patched
 
-[//]: # ([![Build Status]&#40;https://travis-ci.com/nesdis/djongo.svg?branch=master&#41;]&#40;https://travis-ci.com/nesdis/djongo&#41;)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-<a href="https://badge.fury.io/py/djongo"><img src="https://badge.fury.io/py/djongo.svg" alt="PyPI version" height="18"></a>
 
- ## The only connector that lets you use Django with MongoDB *without* changing the Django ORM
+## Django 5.x Compatible Fork of Djongo
 
-Use MongoDB as a backend database for your Django project, without changing the Django ORM.
-Use the Django Admin GUI to add and modify documents in MongoDB. 
+This is a patched fork of [djongo](https://github.com/doableware/djongo) with full Django 5.x compatibility. Djongo is the only connector that lets you use Django with MongoDB **without** changing the Django ORM.
 
-## Usage:
-<ol>
-<li> Install djongo:
+### Key Features
 
-``` 
-pip install djongo
+- ✅ **Django 5.2.7 Compatible** - Fully tested with Django 5.x
+- ✅ **Production Ready** - All patches tested and verified
+- ✅ **Zero ORM Changes** - Use MongoDB as a backend without modifying Django ORM
+- ✅ **Admin GUI Support** - Use Django Admin to manage MongoDB documents
+
+### Patches Included
+
+This fork includes critical patches for Django 5.x compatibility:
+
+1. **Abstract Model Instantiation** - Helper method for instantiating abstract models
+2. **SQL Parser VALUES Token** - sqlparse compatibility for INSERT operations
+3. **ORDER BY/GROUP BY Handling** - Support for modern sqlparse tokenization
+4. **Positional ORDER BY** - Support for Django 5.x positional column references
+
+For detailed patch documentation, see [DJANGO_5_COMPATIBILITY_PATCH.md](./DJANGO_5_COMPATIBILITY_PATCH.md)
+
+## Installation
+
+### From GitHub
+
+```bash
+pip install git+https://github.com/zintlr/djongo-patched.git
 ```
-</li>
-<li> Into settings.py file of your project, add: 
+
+### From Local Clone
+
+```bash
+git clone https://github.com/zintlr/djongo-patched.git
+cd djongo-patched
+pip install -e .
+```
+
+## Usage
+
+Add to your Django `settings.py`:
 
 ```python
 DATABASES = {
@@ -30,60 +55,53 @@ DATABASES = {
     }
 }
 ```
-</li>   
-   <li> Run <code>manage.py makemigrations &ltapp_name&gt </code> followed by <code>manage.py migrate</code> (ONLY the first time to create collections in mongoDB) </li>
-   <li> YOUR ARE SET! HAVE FUN! </li>
-</ol>
 
-## Requirements:
+Run migrations:
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
 
-  1. Python 3.6 or higher.
-  2. MongoDB 3.4 or higher.
-  3. If your models use nested queries or sub querysets like:
-  
-      ```python
-      inner_qs = Blog.objects.filter(name__contains='Ch').values('name')
-      entries = Entry.objects.filter(blog__name__in=inner_qs)
-      ```
-     MongoDB 3.6 or higher is required.
+## Requirements
 
-## How it works
+- Python 3.10 or higher
+- Django 5.x
+- MongoDB 3.4 or higher (3.6+ recommended for nested queries)
+- PyMongo 3.12.3
 
-djongo is a SQL to mongodb query compiler. It translates a SQL query string into a mongoDB query document.
-As a result, all Django features, models etc. work as is.
-  
-  Django contrib modules: 
-<pre><code>  
-'django.contrib.admin',
-'django.contrib.auth',    
-'django.contrib.sessions',
+## Version
 
-</code></pre>
- and others... fully supported.
+Current version: **1.3.8-patched**
 
-## Features
+Based on djongo 1.3.6 with Django 5.2.7 compatibility patches.
 
-  * Use Django Admin GUI to access MongoDB.  
-  * Embedded Model.
-  * Embedded Array.
-  * Embedded Form Fields.
-  
-  Read the [full documentation](https://www.djongomapper.com/)
-  
-## Contribute
- 
-If you think djongo is useful, **please share it** with the world! 
+## Changes from Upstream
 
-You can contribute to the source code or the documentation by creating a simple pull request! 
-You may want to refer to the design documentation to get
-an idea on how [Django MongoDB connector](https://www.djongomapper.com/djongo/django-mongodb-connector-design-document/)
-is implemented.
+See [DJANGO_5_COMPATIBILITY_PATCH.md](./DJANGO_5_COMPATIBILITY_PATCH.md) for complete details on all modifications.
 
-Add a star, show some love :) 
+### Modified Files:
+- `djongo/__init__.py` - Version bump
+- `djongo/models/fields.py` - Abstract model helper
+- `djongo/sql2mongo/query.py` - VALUES, ORDER BY, GROUP BY handling
+- `djongo/sql2mongo/converters.py` - Enhanced converters
+- `djongo/sql2mongo/sql_tokens.py` - Positional ORDER BY support
 
-## Questions and Discussion
+## Contributing
 
- * [Djongo groups](https://groups.google.com/d/forum/djongo) is where you can watch for new release announcements, suggest improvements, and discuss topics pertaining to Django and MongoDB.
- * Issues, where things are not working as expected, please raise a git-hub issue ticket. 
- * For questions and clarifications regarding usage, please put it up on stackoverflow instead. 
-   
+This is a production fork maintained for Django 5.x compatibility. For issues specific to the patches, please open an issue in this repository.
+
+For general djongo issues, see the [upstream repository](https://github.com/doableware/djongo).
+
+## License
+
+AGPL v3 (inherited from upstream djongo)
+
+## Credits
+
+- Original djongo: [doableware/djongo](https://github.com/doableware/djongo)
+- Django 5.x patches: Zintlr Team
+- Maintained by: [@zintlr](https://github.com/zintlr)
+
+---
+
+**Note:** This fork is specifically patched for Django 5.x. If you need Django 4.x or earlier support, use the official djongo package.
