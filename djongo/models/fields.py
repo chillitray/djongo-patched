@@ -112,6 +112,26 @@ class ModelField(MongoField):
         self._validate_container()
         super().__init__(*args, **kwargs)
 
+    def _instantiate_model_container(self, **kwargs):
+        """
+        Helper method to instantiate model_container with Django 3.2+ compatibility.
+
+        Django 3.2+ raises TypeError when instantiating abstract models.
+        This method temporarily disables the abstract flag during instantiation
+        to maintain compatibility with djongo's design pattern.
+
+        References:
+        - Django Ticket #26977: https://code.djangoproject.com/ticket/26977
+        - Djongo Issue #556: https://github.com/doableware/djongo/issues/556
+        - Djongo Issue #606: https://github.com/doableware/djongo/issues/606
+        """
+        was_abstract = getattr(self.model_container._meta, 'abstract', False)
+        self.model_container._meta.abstract = False
+        try:
+            return self.model_container(**kwargs)
+        finally:
+            self.model_container._meta.abstract = was_abstract
+
     def _validate_container(self):
         for field in self.model_container._meta._get_fields(reverse=False):
             if isinstance(field, (AutoField,
@@ -179,7 +199,7 @@ class ModelField(MongoField):
 
     def _value_thru_container(self, value):
         processed_value = {}
-        inst = self.model_container(**value)
+        inst = self._instantiate_model_container(**value)
         for field in self.model_container._meta.get_fields():
             processed_value[field.attname] = getattr(inst, field.attname)
         return processed_value
@@ -192,7 +212,7 @@ class ModelField(MongoField):
             super().validate(value, model_instance)
             return
 
-        container_instance = self.model_container(**value)
+        container_instance = self._instantiate_model_container(**value)
         self._value_thru_fields('validate', value, container_instance)
 
     def value_to_string(self, obj):
@@ -200,7 +220,7 @@ class ModelField(MongoField):
         if value is None:
             raise TypeError(f'Type: {type(value)} cannot be serialized')
 
-        container_obj = self.model_container(**value)
+        container_obj = self._instantiate_model_container(**value)
         processed_value = self._obj_thru_fields('value_to_string', container_obj)
         return json.dumps(processed_value)
 
@@ -209,7 +229,7 @@ class ModelField(MongoField):
         if value is None:
             return None
 
-        container_obj = self.model_container(**value)
+        container_obj = self._instantiate_model_container(**value)
         processed_value = self._obj_thru_fields('value_from_object', container_obj)
         return processed_value
 
@@ -351,7 +371,7 @@ class ArrayField(FormedField):
         value = self.value_from_object(obj)
         processed_value = []
         for _dict in value:
-            container_obj = self.model_container(**_dict)
+            container_obj = self._instantiate_model_container(**_dict)
             post_dict = self._obj_thru_fields('value_to_string', container_obj)
             processed_value.append(post_dict)
         return json.dumps(processed_value)
@@ -360,7 +380,7 @@ class ArrayField(FormedField):
         value = getattr(obj, self.attname)
         processed_value = []
         for _dict in value:
-            container_obj = self.model_container(**_dict)
+            container_obj = self._instantiate_model_container(**_dict)
             post_dict = self._obj_thru_fields('value_from_object', container_obj)
             processed_value.append(post_dict)
         return processed_value

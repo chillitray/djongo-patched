@@ -276,14 +276,35 @@ class OrderConverter(Converter):
 
     def parse(self):
         tok = self.statement.next()
-        if not tok.match(tokens.Keyword, 'BY'):
-            raise SQLDecodeError
+        # Handle both tokenization formats:
+        # - Old sqlparse: ORDER (matched) → BY (next token)
+        # - New sqlparse: ORDER BY (matched) → column (next token, BY already consumed)
+        if tok.match(tokens.Keyword, 'BY'):
+            # Old format: 'BY' is a separate token, get the next token
+            tok = self.statement.next()
+        # else: New format: 'BY' was part of 'ORDER BY', tok is already the column list
 
-        tok = self.statement.next()
         self.columns.extend(SQLToken.tokens2sql(tok, self.query))
 
     def to_mongo(self):
-        sort = [(tok.column, tok.order) for tok in self.columns]
+        sort = []
+        for tok in self.columns:
+            column = tok.column
+
+            # Handle positional references (e.g., ORDER BY 6)
+            # SQL uses 1-based indexing, so position 6 = index 5
+            if column.isdigit():
+                position = int(column) - 1  # Convert to 0-based index
+                try:
+                    # Get the actual column name from the SELECT list
+                    selected_col = self.query.selected_columns.sql_tokens[position]
+                    column = selected_col.column
+                except (IndexError, AttributeError):
+                    # If we can't resolve the position, use it as-is (will likely fail)
+                    pass
+
+            sort.append((column, tok.order))
+
         return {'sort': sort}
 
 
@@ -443,9 +464,14 @@ class GroupbyConverter(Converter, _Tokens2Id):
 
     def parse(self):
         tok = self.statement.next()
-        if not tok.match(tokens.Keyword, 'BY'):
-            raise SQLDecodeError
-        tok = self.statement.next()
+        # Handle both tokenization formats:
+        # - Old sqlparse: GROUP (matched) → BY (next token)
+        # - New sqlparse: GROUP BY (matched) → column (next token, BY already consumed)
+        if tok.match(tokens.Keyword, 'BY'):
+            # Old format: 'BY' is a separate token, get the next token
+            tok = self.statement.next()
+        # else: New format: 'BY' was part of 'GROUP BY', tok is already the column list
+
         self.sql_tokens.extend(SQLToken.tokens2sql(tok, self.query))
 
     def to_mongo(self):

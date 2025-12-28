@@ -18,7 +18,7 @@ from sqlparse import tokens
 from sqlparse.sql import (
     Identifier, Parenthesis,
     Where,
-    Statement)
+    Statement, Values)
 
 from ..exceptions import SQLDecodeError, MigrationError, print_warn
 from .functions import SQLFunc
@@ -128,7 +128,7 @@ class SelectQuery(DQLQuery):
             elif tok.match(tokens.Keyword, 'LIMIT'):
                 self.limit = LimitConverter(self, statement)
 
-            elif tok.match(tokens.Keyword, 'ORDER'):
+            elif tok.match(tokens.Keyword, 'ORDER BY') or tok.match(tokens.Keyword, 'ORDER'):
                 self.order = OrderConverter(self, statement)
 
             elif tok.match(tokens.Keyword, 'OFFSET'):
@@ -142,7 +142,7 @@ class SelectQuery(DQLQuery):
                 converter = OuterJoinConverter(self, statement)
                 self.joins.append(converter)
 
-            elif tok.match(tokens.Keyword, 'GROUP'):
+            elif tok.match(tokens.Keyword, 'GROUP BY') or tok.match(tokens.Keyword, 'GROUP'):
                 self.groupby = GroupbyConverter(self, statement)
 
             elif tok.match(tokens.Keyword, 'HAVING'):
@@ -364,6 +364,19 @@ class InsertQuery(DMLQuery):
                     else:
                         values.append(index)
                 self._values.append(values)
+            elif isinstance(tok, Values):
+                # Handle VALUES token in newer sqlparse versions (wraps VALUES and parenthesis)
+                # Extract the parenthesis from within the Values token
+                for subtok in tok.tokens:
+                    if isinstance(subtok, Parenthesis):
+                        placeholder = SQLToken.token2sql(subtok, self)
+                        values = []
+                        for index in placeholder:
+                            if isinstance(index, int):
+                                values.append(self.params[index])
+                            else:
+                                values.append(index)
+                        self._values.append(values)
             elif not tok.match(tokens.Keyword, 'VALUES'):
                 raise SQLDecodeError
 

@@ -146,7 +146,13 @@ class SQLIdentifier(AliasableToken):
 
     @property
     def column(self) -> str:
-        name = self._token.get_real_name()
+        # Handle both Identifier tokens and simple Token (e.g., positional ORDER BY)
+        if hasattr(self._token, 'get_real_name'):
+            name = self._token.get_real_name()
+        else:
+            # For simple tokens (like numbers in ORDER BY 6), use the token value directly
+            name = str(self._token.value) if hasattr(self._token, 'value') else str(self._token)
+
         if name is None:
             raise SQLDecodeError
         return name
