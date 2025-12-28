@@ -29,13 +29,13 @@ For detailed patch documentation, see [DJANGO_5_COMPATIBILITY_PATCH.md](./DJANGO
 ### From GitHub
 
 ```bash
-pip install git+https://github.com/zintlr/djongo-patched.git
+pip install git+https://github.com/chillitray/djongo-patched.git
 ```
 
 ### From Local Clone
 
 ```bash
-git clone https://github.com/zintlr/djongo-patched.git
+git clone https://github.com/chillitray/djongo-patched.git
 cd djongo-patched
 pip install -e .
 ```
@@ -99,8 +99,8 @@ AGPL v3 (inherited from upstream djongo)
 ## Credits
 
 - Original djongo: [doableware/djongo](https://github.com/doableware/djongo)
-- Django 5.x patches: Zintlr Team
-- Maintained by: [@zintlr](https://github.com/zintlr)
+- Django 5.x patches: Chillitray Team
+- Maintained by: [@chillitray](https://github.com/chillitray)
 
 ---
 
