@@ -99,8 +99,8 @@ AGPL v3 (inherited from upstream djongo)
 ## Credits
 
 - Original djongo: [doableware/djongo](https://github.com/doableware/djongo)
-- Django 5.x patches: Chillitray Team
-- Maintained by: [@chillitray](https://github.com/chillitray)
+- Django 5.x patches: Zintlr Team
+- Maintained by: [@zintlr](https://github.com/chillitray)
 
 ---
 
