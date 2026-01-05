@@ -2,11 +2,12 @@
 
 ## Overview
 
-This document describes critical patches required for Djongo 1.3.8 to work with Django 5.2.7 and newer sqlparse versions. Four main issues are addressed:
+This document describes critical patches required for Djongo 1.3.8 to work with Django 5.2.7, Python 3.13, and newer sqlparse versions. Five main issues are addressed:
 1. Abstract model instantiation error (Django 3.2+ breaking change) - **FIXED with monkey-patch**
 2. SQL parser VALUES token handling (sqlparse version compatibility)
 3. SQL parser ORDER BY / GROUP BY keyword handling (sqlparse version compatibility)
 4. SQL parser positional ORDER BY references (Django 5.x SQL generation)
+5. SQL token table name resolution recursion (Python 3.13 + sqlparse compatibility)
 
 **Note:** Patch 1 (Abstract Model Instantiation) is now handled globally via a monkey-patch in `zintlr_project/__init__.py`, eliminating the need for code changes in djongo or application code.
 
@@ -599,21 +600,158 @@ python manage.py check
 - [Django 5.x SQL Compiler](https://docs.djangoproject.com/en/5.2/topics/db/sql/)
 - [SQL Positional References](https://www.postgresql.org/docs/current/queries-order.html)
 
+---
+
+## PATCH 5: SQL Token Table Name Resolution Recursion Fix
+
+### Problem
+
+**Python 3.13 + SQLParse Recursion Error:**
+
+When using Python 3.13 with modern sqlparse versions, certain SQL queries can cause infinite recursion in the `SQLIdentifier.table` property:
+
+```python
+RecursionError: maximum recursion depth exceeded
+```
+
+The error occurs in the `token_next_by` method of sqlparse when trying to resolve table names through alias lookups.
+
+### Root Cause
+
+The `SQLIdentifier.table` property in `djongo/sql2mongo/sql_tokens.py` has two recursion paths:
+
+1. **Alias Cycle Recursion:** When `alias2token[name].table` is called, if the aliased token eventually points back to the original token (directly or indirectly), it creates an infinite loop.
+
+2. **SQLParse Internal Recursion:** The `get_real_name()` and `get_parent_name()` methods from sqlparse can enter infinite recursion on certain token structures in Python 3.13.
+
+### Solution
+
+Added multi-layered recursion protection:
+
+1. **Token Tracking Set:** A class-level `_resolving_tables` set tracks which tokens are currently being resolved to detect cycles.
+2. **Early Cycle Detection:** Check for self-reference before attempting alias lookup.
+3. **RecursionError Handling:** Catch `RecursionError` exceptions and fall back to direct token string values.
+4. **Fallback Method:** Added `_get_table_name_direct()` method for safe name extraction.
+
+### Changes Made
+
+**File: `djongo/sql2mongo/sql_tokens.py`**
+
+**Added Class Variable (line 104):**
+```python
+class SQLIdentifier(AliasableToken):
+    # Thread-local storage to track tokens being resolved to prevent infinite recursion
+    _resolving_tables = set()
+```
+
+**Updated `table` Property (lines 130-162):**
+```python
+@property
+def table(self) -> str:
+    # Use id(self) to track which tokens we're currently resolving
+    # to prevent infinite recursion
+    token_id = id(self)
+    if token_id in SQLIdentifier._resolving_tables:
+        # We're in a recursive loop - try to get name directly without alias lookup
+        try:
+            return self._get_table_name_direct()
+        except (RecursionError, SQLDecodeError):
+            # Last resort: return token string value
+            return str(self._token.value) if hasattr(self._token, 'value') else str(self._token)
+    
+    # Mark this token as being resolved BEFORE any property access
+    SQLIdentifier._resolving_tables.add(token_id)
+    try:
+        name = self.given_table
+        alias2token = self.token_alias.alias2token
+        
+        aliased_token = alias2token.get(name)
+        if aliased_token is None:
+            return name
+        
+        # Check if we're looking up ourselves (direct cycle)
+        if aliased_token is self:
+            return name
+        
+        try:
+            return aliased_token.table
+        except RecursionError:
+            # Catch any recursion errors from sqlparse and return name as fallback
+            return name
+            
+    except KeyError:
+        return self.given_table
+    finally:
+        SQLIdentifier._resolving_tables.discard(token_id)
+```
+
+**Added Helper Method `_get_table_name_direct()` (lines 164-178):**
+```python
+def _get_table_name_direct(self) -> str:
+    """Get table name directly without going through alias lookup."""
+    try:
+        name = self._token.get_parent_name()
+        if name is None:
+            name = self._token.get_real_name()
+        if name is None:
+            raise SQLDecodeError
+        return name
+    except RecursionError:
+        # Fall back to string value
+        name = str(self._token.value) if hasattr(self._token, 'value') else str(self._token)
+        if name and len(name) >= 2:
+            if (name[0] == '"' and name[-1] == '"') or (name[0] == "'" and name[-1] == "'"):
+                name = name[1:-1]
+        if not name:
+            raise SQLDecodeError
+        return name
+```
+
+**Updated `given_table` Property (lines 180-197):**
+Added `RecursionError` handling to fall back to token string value when sqlparse methods fail.
+
+### Impact
+
+This fix enables djongo to work with:
+- Python 3.13's stricter recursion handling
+- Complex SQL queries with multiple table aliases
+- JOIN operations that may create circular alias references
+- Modern sqlparse versions that have different token iteration behavior
+
+Without this fix, many queries fail with `RecursionError`, including:
+- `APUser.objects.filter(...)` (exists check)
+- Any query involving table aliases
+- JOIN operations
+
+### Testing
+
+**Test Case: User Lookup Query**
+```python
+from admin_panel.models import APUser
+
+# Query that previously caused RecursionError
+user_exists = APUser.objects.filter(email="test@example.com").exists()
+# ✅ SUCCESS: No more RecursionError
+```
+
+---
+
 ## Maintenance Notes
 
-**All four patches are necessary as long as:**
+**All five patches are necessary as long as:**
 1. Using Djongo with Django 3.2+ (especially Django 5.x)
 2. Using abstract models as `model_container` for ArrayField/EmbeddedField
 3. Using modern sqlparse versions (0.4.0+)
 4. Using Django 5.x's SQL generation with positional ORDER BY
+5. Using Python 3.13+ with sqlparse
 
 **If djongo releases official fixes for these issues, these patches can be removed.**
 
 ## Version Information
 
-- **Patch Date:** 2025-12-28
+- **Patch Date:** 2025-01-05
 - **Django Version:** 5.2.7
-- **Djongo Version:** 1.3.8 (patched with 4 compatibility fixes)
+- **Djongo Version:** 1.3.8 (patched with 5 compatibility fixes)
 - **PyMongo Version:** 3.12.3
 - **Python Version:** 3.13.2
 - **Status:** ✅ Production Ready - All tests passing

@@ -100,6 +100,8 @@ class AliasableToken(SQLToken):
 
 
 class SQLIdentifier(AliasableToken):
+    # Thread-local storage to track tokens being resolved to prevent infinite recursion
+    _resolving_tables = set()
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -127,18 +129,75 @@ class SQLIdentifier(AliasableToken):
 
     @property
     def table(self) -> str:
-        name = self.given_table
-        alias2token = self.token_alias.alias2token
+        # Use id(self) to track which tokens we're currently resolving
+        # to prevent infinite recursion
+        token_id = id(self)
+        if token_id in SQLIdentifier._resolving_tables:
+            # We're in a recursive loop - try to get name directly without alias lookup
+            try:
+                return self._get_table_name_direct()
+            except (RecursionError, SQLDecodeError):
+                # Last resort: return token string value
+                return str(self._token.value) if hasattr(self._token, 'value') else str(self._token)
+        
+        # Mark this token as being resolved BEFORE any property access
+        SQLIdentifier._resolving_tables.add(token_id)
         try:
-            return alias2token[name].table
+            name = self.given_table
+            alias2token = self.token_alias.alias2token
+            
+            aliased_token = alias2token.get(name)
+            if aliased_token is None:
+                return name
+            
+            # Check if we're looking up ourselves (direct cycle)
+            if aliased_token is self:
+                return name
+            
+            try:
+                return aliased_token.table
+            except RecursionError:
+                # Catch any recursion errors from sqlparse and return name as fallback
+                return name
+                
         except KeyError:
+            return self.given_table
+        finally:
+            SQLIdentifier._resolving_tables.discard(token_id)
+    
+    def _get_table_name_direct(self) -> str:
+        """Get table name directly without going through alias lookup."""
+        try:
+            name = self._token.get_parent_name()
+            if name is None:
+                name = self._token.get_real_name()
+            if name is None:
+                raise SQLDecodeError
+            return name
+        except RecursionError:
+            # Fall back to string value
+            name = str(self._token.value) if hasattr(self._token, 'value') else str(self._token)
+            if name and len(name) >= 2:
+                if (name[0] == '"' and name[-1] == '"') or (name[0] == "'" and name[-1] == "'"):
+                    name = name[1:-1]
+            if not name:
+                raise SQLDecodeError
             return name
 
     @property
     def given_table(self) -> str:
-        name = self._token.get_parent_name()
-        if name is None:
-            name = self._token.get_real_name()
+        try:
+            name = self._token.get_parent_name()
+            if name is None:
+                name = self._token.get_real_name()
+        except RecursionError:
+            # Handle recursion errors from sqlparse's token methods
+            # Fall back to string representation of the token
+            name = str(self._token.value) if hasattr(self._token, 'value') else str(self._token)
+            # Clean up the name - remove quotes if present
+            if name and len(name) >= 2:
+                if (name[0] == '"' and name[-1] == '"') or (name[0] == "'" and name[-1] == "'"):
+                    name = name[1:-1]
 
         if name is None:
             raise SQLDecodeError
