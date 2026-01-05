@@ -158,7 +158,42 @@ class LikeOp(_BinaryOp):
     def __init__(self, *args, **kwargs):
         super().__init__(name='LIKE', *args, **kwargs)
         self._regex = None
-        self._make_regex(self.statement.next())
+
+        # Since _BinaryOp.__init__ calls self.statement.prev_token (which modifies position),
+        # we can't reliably use statement traversal. Instead, directly extract the placeholder
+        # from the Comparison token structure.
+
+        # The Comparison token structure is: [left_expr, whitespace, LIKE, whitespace, placeholder]
+        # We need to find the placeholder token (usually the last non-whitespace token)
+
+        placeholder_token = None
+
+        # SQLStatement wraps the actual token in self._statement
+        if hasattr(self.statement, '_statement') and hasattr(self.statement._statement, 'tokens'):
+            # Get all tokens from the Comparison
+            comparison_tokens = self.statement._statement.tokens
+
+            # Find the placeholder - it's typically after the LIKE operator
+            like_found = False
+            for tok in comparison_tokens:
+                if tok.ttype == tokens.Operator.Comparison and tok.value.upper() in ('LIKE', 'ILIKE'):
+                    like_found = True
+                elif like_found and tok.ttype != tokens.Text.Whitespace:
+                    # This is the first non-whitespace token after LIKE
+                    placeholder_token = tok
+                    break
+
+        if not placeholder_token:
+            # Fallback to old behavior if we couldn't extract directly
+            next_token = self.statement.next()
+            while next_token and next_token.ttype == tokens.Text.Whitespace:
+                next_token = self.statement.next()
+            placeholder_token = next_token
+
+        if placeholder_token:
+            self._make_regex(placeholder_token)
+        else:
+            raise SQLDecodeError("LIKE operator missing value placeholder")
 
     def check_embedded(self, to_match):
         try:
@@ -415,7 +450,35 @@ class _StatementParser:
             if isinstance(tok.tokens[0], Function):
                 op = FuncOp(tok, self.query)
             else:
-                op = CmpOp(tok, self.query)
+                # Check if this is a LIKE comparison
+                operator_token = None
+                for t in tok.tokens:
+                    if t.ttype == tokens.Operator.Comparison:
+                        operator_token = t
+                        break
+
+                if operator_token and operator_token.value.upper() == 'LIKE':
+                    # Create a statement and position it AT the LIKE operator
+                    like_statement = SQLStatement(tok)
+                    # Skip to LIKE operator position (don't skip past it)
+                    for _ in range(len(tok.tokens)):
+                        if like_statement.current_token and like_statement.current_token.ttype == tokens.Operator.Comparison:
+                            # We're at LIKE, don't skip further
+                            break
+                        like_statement.skip(1)
+                    op = LikeOp(statement=like_statement, query=self.query, params=self.params)
+                elif operator_token and operator_token.value.upper() == 'ILIKE':
+                    # Create a statement and position it AT the ILIKE operator
+                    ilike_statement = SQLStatement(tok)
+                    # Skip to ILIKE operator position (don't skip past it)
+                    for _ in range(len(tok.tokens)):
+                        if ilike_statement.current_token and ilike_statement.current_token.ttype == tokens.Operator.Comparison:
+                            # We're at ILIKE, don't skip further
+                            break
+                        ilike_statement.skip(1)
+                    op = iLikeOp(statement=ilike_statement, query=self.query, params=self.params)
+                else:
+                    op = CmpOp(tok, self.query)
 
         elif isinstance(tok, Parenthesis):
             if (tok[1].match(tokens.Name.Placeholder, '.*', regex=True)

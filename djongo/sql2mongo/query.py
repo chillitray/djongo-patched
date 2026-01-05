@@ -274,12 +274,23 @@ class SelectQuery(DQLQuery):
                             raise MigrationError(selected.column)
                         ret.append(None)
                 else:
-                    try:
-                        ret.append(doc[selected.table][selected.column])
-                    except KeyError:
-                        if self.connection_properties.enforce_schema:
-                            raise MigrationError(selected.column)
-                        ret.append(None)
+                    # Check if this is an aliased constant (like SELECT 1 AS "a")
+                    # In this case, table and column are both set to the alias name
+                    if hasattr(selected, 'alias') and selected.alias and selected.column == selected.alias:
+                        # For EXISTS queries with constants, just return 1
+                        ret.append(1)
+                    else:
+                        try:
+                            # First check if selected.table exists in doc (it could be an embedded doc)
+                            if selected.table in doc and isinstance(doc[selected.table], dict):
+                                ret.append(doc[selected.table][selected.column])
+                            else:
+                                # If table is not in doc, try to get column directly from doc
+                                ret.append(doc[selected.column])
+                        except KeyError:
+                            if self.connection_properties.enforce_schema:
+                                raise MigrationError(selected.column)
+                            ret.append(None)
             else:
                 ret.append(doc[selected.alias])
 
