@@ -54,6 +54,11 @@ class SQLToken:
                 yield from SQLToken.tokens2sql(tok, query)
         elif isinstance(token, Parenthesis):
             yield SQLPlaceholder(token, query)
+        elif token.ttype in (tokens.Number.Integer, tokens.Number.Float, tokens.Number.Hexadecimal):
+            # Handle numeric tokens (e.g., GROUP BY 1, ORDER BY 1)
+            # These represent positional column references in SQL
+            # Use SQLIdentifier which can handle simple tokens via token.value
+            yield SQLIdentifier(token, query)
         else:
             raise SQLDecodeError(f'Unsupported: {token.value}')
 
@@ -95,6 +100,9 @@ class AliasableToken(SQLToken):
     @property
     def alias(self) -> str:
         # bug fix sql parse
+        # Handle simple tokens (like numbers) that don't have get_ordering/get_alias methods
+        if not hasattr(self._token, 'get_ordering'):
+            return None
         if not self._token.get_ordering():
             return self._token.get_alias()
 
@@ -106,7 +114,8 @@ class SQLIdentifier(AliasableToken):
     def __init__(self, *args):
         super().__init__(*args)
         self._ord = None
-        if self._token.get_ordering():
+        # Handle simple tokens (like numbers) that don't have get_ordering method
+        if hasattr(self._token, 'get_ordering') and self._token.get_ordering():
             # Bug fix for sql parse
             self._ord = self._token.get_ordering()
             self._token = self._token[0]
@@ -187,9 +196,15 @@ class SQLIdentifier(AliasableToken):
     @property
     def given_table(self) -> str:
         try:
-            name = self._token.get_parent_name()
-            if name is None:
-                name = self._token.get_real_name()
+            # Handle simple tokens (like numbers) that don't have get_parent_name method
+            if hasattr(self._token, 'get_parent_name'):
+                name = self._token.get_parent_name()
+                if name is None and hasattr(self._token, 'get_real_name'):
+                    name = self._token.get_real_name()
+            else:
+                # For simple tokens, return the value as the "table" name
+                # This will be handled later in the resolution logic
+                name = str(self._token.value) if hasattr(self._token, 'value') else str(self._token)
         except RecursionError:
             # Handle recursion errors from sqlparse's token methods
             # Fall back to string representation of the token

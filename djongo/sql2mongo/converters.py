@@ -349,24 +349,36 @@ class _Tokens2Id:
     def to_id(self):
         _id = {}
         for iden in self.sql_tokens:
+            # Handle positional references (e.g., GROUP BY 1)
+            # SQL uses 1-based indexing, so position 1 = index 0
+            current_iden = iden
+            if hasattr(iden, 'column') and isinstance(iden.column, str) and iden.column.isdigit():
+                position = int(iden.column) - 1  # Convert to 0-based index
+                try:
+                    # Get the actual column from the SELECT list
+                    current_iden = self.query.selected_columns.sql_tokens[position]
+                except (IndexError, AttributeError):
+                    # If we can't resolve the position, use the original token
+                    pass
+
             # if the token is a function then call its to_mongo routine
-            if isinstance(iden, SQLFunc) and iden.alias:
-                _id[iden.alias] = iden.to_mongo()
-            elif iden.column == iden.field:
-                _id[iden.field] = f'${iden.field}'
+            if isinstance(current_iden, SQLFunc) and current_iden.alias:
+                _id[current_iden.alias] = current_iden.to_mongo()
+            elif current_iden.column == current_iden.field:
+                _id[current_iden.field] = f'${current_iden.field}'
             else:
                 try:
-                    _id[iden.table][iden.column] = f'${iden.field}'
+                    _id[current_iden.table][current_iden.column] = f'${current_iden.field}'
                 except KeyError:
-                    _id[iden.table] = {iden.column: f'${iden.field}'}
-            # if iden.table == self.query.left_table:
-            #     _id[iden.column] = f'${iden.column}'
+                    _id[current_iden.table] = {current_iden.column: f'${current_iden.field}'}
+            # if current_iden.table == self.query.left_table:
+            #     _id[current_iden.column] = f'${current_iden.column}'
             # else:
-            #     mongo_field = f'${iden.table}.{iden.column}'
+            #     mongo_field = f'${current_iden.table}.{current_iden.column}'
             #     try:
-            #         _id[iden.table][iden.column] = mongo_field
+            #         _id[current_iden.table][current_iden.column] = mongo_field
             #     except KeyError:
-            #         _id[iden.table] = {iden.column: mongo_field}
+            #         _id[current_iden.table] = {current_iden.column: mongo_field}
 
         return _id
 
